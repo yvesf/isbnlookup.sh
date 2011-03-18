@@ -1,6 +1,7 @@
 #!/bin/bash
 # USAGE EXAMPLES
 # for file in *pdf; do newname=`isbnlookup.sh "${file}"` && echo -e "success\t${file}\n\t${newname}" || echo "failed ${file}"; done
+# for file in Manning*pdf; do newname=`isbnlookup.sh "${file}"` && echo -e "success\t${file}\n\t${newname}" && mv -v "$file" "$newname" || echo "failed ${file}";  done
 
 error() {
     echo $1 >&2
@@ -14,7 +15,7 @@ extract_first_pages() {
 find_first_isbn_number() {
     grep "ISBN" \
     | tr -c -d 'A-Za-z0-9\-\ ' \
-    | grep -o -E "ISBN.{0,10}([0-9\-]{13,17}|[0-9]{10,13})" \
+    | grep -o -E "ISBN *.{0,10} *([0-9\-]{13,17}|[0-9]{10,13})" \
     | grep -o -E "([0-9\-]{13,17}|[0-9]{10,13})" \
     | head -n 1 \
     | tr -c -d '0-9\-'
@@ -24,7 +25,7 @@ fetch_amazon_searchlinks() {
     search_url="http://www.amazon.com/s/url=search-alias%3Daps&field-keywords=${1}"
     wget -U "Mozilla/5.0 (X11; U; Linux x86_64; en-US) AppleWebKit/540.0 (KHTML, like Gecko) Ubuntu/10.10 Chrome/8.1.0.0 Safari/540.0" \
             -q -O - ${search_url} \
-        | grep -E -o 'http://www.amazon.com[^"]*/dp/[0-9]*'
+        | grep -E -o 'http://www.amazon.com[^"]*/dp/[0-9A-Z]*'
 }
 
 fetch_amazon_titleinfo() {
@@ -39,8 +40,12 @@ sanitize_filename() {
 
 file="${1}"
 
-test -f "${file}" || error "No file given"
-isbn=`extract_first_pages "${file}" | find_first_isbn_number`
+if [ -f "${file}" ]; then
+    isbn=`extract_first_pages "${file}" | find_first_isbn_number`
+else
+    echo search $1
+    isbn=$1
+fi
 
 if [ ${#isbn} -eq 0 ]; then
     error "No ISBN found in ${file}"
