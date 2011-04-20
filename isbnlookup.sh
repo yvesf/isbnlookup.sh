@@ -96,7 +96,12 @@ fi
 author=`google_books_authors "$infofile" $number`
 title=`google_books_title "$infofile" $number`
 identifier=`google_books_identifier "$infofile" $number`
-newname="$author - $title #isbn_$identifier.pdf"
+if [ -n "$author" ]; then
+    newname="$author - $title #isbn_$identifier.pdf"
+else
+    newname="$title #isbn_$identifier.pdf"
+fi
+
 
 if $rename && [ -f "$search" ]; then
     mv -v "$search" "$newname"
