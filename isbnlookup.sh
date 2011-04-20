@@ -88,6 +88,8 @@ fi
 
 if [ `google_books_count_results "$infofile"` -eq 1 ]; then
     number=1
+elif [ `google_books_count_results "$infofile"` -eq 0 ]; then
+    error "Nothing found for \"$search\""
 else
     google_books_print_results $infofile
     echo -n "Pick Number: "
@@ -101,7 +103,7 @@ if [ -n "$author" ]; then
 else
     newname="$title #isbn_$identifier.pdf"
 fi
-
+newname=`echo "$newname" | tr -d -c 'A-Za-z0-9. #_,:-'`
 
 if $rename && [ -f "$search" ]; then
     mv -v "$search" "$newname"
