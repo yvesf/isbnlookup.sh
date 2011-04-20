@@ -1,7 +1,4 @@
 #!/bin/bash
-# USAGE EXAMPLES
-# for file in *pdf; do newname=`isbnlookup.sh "${file}"` && echo -e "success\t${file}\n\t${newname}" || echo "failed ${file}"; done
-# for file in Manning*pdf; do newname=`isbnlookup.sh "${file}"` && echo -e "success\t${file}\n\t${newname}" && mv -v "$file" "$newname" || echo "failed ${file}";  done
 
 error() {
     echo $1 >&2
@@ -21,17 +18,49 @@ find_first_isbn_number() {
     | tr -c -d '0-9\-'
 }
 
-fetch_amazon_searchlinks() {
-    search_url="http://www.amazon.com/s/url=search-alias%3Daps&field-keywords=${1}"
-    wget -U "Mozilla/5.0 (X11; U; Linux x86_64; en-US) AppleWebKit/540.0 (KHTML, like Gecko) Ubuntu/10.10 Chrome/8.1.0.0 Safari/540.0" \
-            -q -O - ${search_url} \
-        | grep -E -o 'http://www.amazon.com[^"]*/dp/[0-9A-Z]*'
+
+fetch_google_books_info() {
+    isbn=$1
+    tempfile=`mktemp`
+    wget -O "$tempfile" -q "http://books.google.com/books/feeds/volumes?q=$1&start-index=11&max-results=10"
+    echo $tempfile
 }
 
-fetch_amazon_titleinfo() {
-    wget -q -O - "${url}" \
-        | iconv -f latin1 -t utf-8 \
-        | sed -n -r 's/<title>[^:]*: ?(.*) ?\(.*/\1/p'
+google_books_count_results() {
+    tempfile=$1
+    xpath -q -e 'count(/feed/entry)' "$tempfile" 2>/dev/null
+}
+
+google_books_print_results() {
+    tempfile=$1
+    count=`google_books_count_results "$tempfile"`
+    for i in `seq 1 $count`; do
+        echo -n "$i : "
+        google_books_authors "$tempfile" "$i" | tr -d '\n'
+        echo -n " - "
+        google_books_title "$tempfile" "$i" | tr -d '\n'
+        echo -n " #isbn_"
+        google_books_identifier "$tempfile" "$i" | tr -d '\n'
+        echo ".pdf"
+    done
+}
+
+google_books_authors() {
+    tempfile=$1
+    entry=$2
+    xpath -q -e "/feed/entry[$entry]/dc:creator/text()" "$tempfile" | head -n 1
+}
+
+google_books_title() {
+    tempfile=$1
+    entry=$2
+    xpath -q -e "/feed/entry[$entry]/title/text()" "$tempfile"
+}
+
+google_books_identifier() {
+    tempfile=$1
+    entry=$2
+    xpath -q -e "/feed/entry[$entry]/dc:identifier/text()" "$tempfile" | sed -n -e 's/ISBN:\(.*\)/\1/p' | sort -r | head -n 1
 }
 
 sanitize_filename() {
@@ -40,38 +69,38 @@ sanitize_filename() {
 
 if [ "$1" == "-r" ]; then
     rename=true
-    file=$2
+    shift
 else
     rename=false
-    file=$1
 fi
+search=$*
 
-
-if [ -f "${file}" ]; then
-    isbn=`extract_first_pages "${file}" | find_first_isbn_number`
+if [ -f "$search" ]; then
+    isbn=`extract_first_pages "${search}" | find_first_isbn_number`
+    if [ ${#isbn} -eq 0 ]; then
+        error "No ISBN found in ${search}"
+    fi
+    infofile=`fetch_google_books_info "isbn:$isbn"`
 else
-    echo search $1
-    isbn=$1
+    echo "search term: $search"
+    infofile=`fetch_google_books_info "$search"`
 fi
 
-if [ ${#isbn} -eq 0 ]; then
-    error "No ISBN found in ${file}"
-fi
-
-url=`fetch_amazon_searchlinks "${isbn}" | head -n 1`
-
-if [ ${#url} -eq 0 ]; then
-    error "No Amazon Record for extracted ISBN \"${isbn}\""
-fi
-
-title=`fetch_amazon_titleinfo "${url}"`
-
-if [ ${#title} -eq 0 ]; then
-    error "No title for ISBN ${isbn} at ${url} found"
-fi
-
-if $rename; then
-    mv -v "${file}" "`sanitize_filename \"${title}\"` #isbn_${isbn}.pdf"
+if [ `google_books_count_results "$infofile"` -eq 1 ]; then
+    number=1
 else
-    echo "`sanitize_filename \"${title}\"` #isbn_${isbn}.pdf"
+    google_books_print_results $infofile
+    echo -n "Pick Number: "
+    read number
 fi
+author=`google_books_authors "$infofile" $number`
+title=`google_books_title "$infofile" $number`
+identifier=`google_books_identifier "$infofile" $number`
+newname="$author - $title #isbn_$identifier.pdf"
+
+if $rename && [ -f "$search" ]; then
+    mv -v "$search" "$newname"
+else
+    echo $newname
+fi
+rm $infofile
