@@ -1,11 +1,7 @@
 isbnlookup.sh
 Bash-Script for organizing of pdf ebooks
 
-isbn_lookup uses pdftotext to extract the book ISBN number.
-Then amazon.com is queried, using the isbn number, to get the 
-title of the book. The Script builds a filesystem-clean filename
-containing the booktitle and isbn number.
-
-Suggestions, patches/forks welcome.
+isbn_lookup uses pdftotext to extract the book ISBN number and
+query google-books with it.
 
 gitHub Repository: http://github.com/yvesf/isbnlookup.sh
