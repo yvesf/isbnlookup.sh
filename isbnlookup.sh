@@ -38,7 +38,14 @@ sanitize_filename() {
     echo "${1}" | tr -c -d 'A-Za-z0-9\ '
 }
 
-file="${1}"
+if [ "$1" == "-r" ]; then
+    rename=true
+    file=$2
+else
+    rename=false
+    file=$1
+fi
+
 
 if [ -f "${file}" ]; then
     isbn=`extract_first_pages "${file}" | find_first_isbn_number`
@@ -54,7 +61,7 @@ fi
 url=`fetch_amazon_searchlinks "${isbn}" | head -n 1`
 
 if [ ${#url} -eq 0 ]; then
-    error "No Amazon Record for ISBN ${isbn}"
+    error "No Amazon Record for extracted ISBN \"${isbn}\""
 fi
 
 title=`fetch_amazon_titleinfo "${url}"`
@@ -63,4 +70,8 @@ if [ ${#title} -eq 0 ]; then
     error "No title for ISBN ${isbn} at ${url} found"
 fi
 
-echo "`sanitize_filename \"${title}\"` #isbn_${isbn}.pdf"
+if $rename; then
+    mv -v "${file}" "`sanitize_filename \"${title}\"` #isbn_${isbn}.pdf"
+else
+    echo "`sanitize_filename \"${title}\"` #isbn_${isbn}.pdf"
+fi
