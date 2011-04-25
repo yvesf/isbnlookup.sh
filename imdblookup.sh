@@ -5,7 +5,16 @@ fs_clean() {
 }
 
 unescape() {
-    perl -e 'use HTML::Entities; while (<>) { print decode_entities($_); };'
+    if perl -e 'use HTML::Entities;' 2>/dev/null; then
+        perl -e 'use HTML::Entities; while (<>) { print decode_entities($_); };'
+    else
+        python -c "
+import htmllib, sys, re
+p = htmllib.HTMLParser(None)
+p.save_bgn()
+p.feed(re.sub('&#x([0-9]+);', lambda m: '&#0%s;'%int(m.group(1),16), sys.stdin.read()))
+print p.save_end()"
+    fi
 }
 
 clean_name() {
