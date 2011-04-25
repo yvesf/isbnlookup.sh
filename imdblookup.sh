@@ -14,7 +14,7 @@ clean_name() {
 }
 
 query() {
-    file=$(mktemp)
+    file=$(mktemp -t imdblookup.XXX)
     wget -q -U "Mozilla" -O - "http://imdb.com/find?s=tt&q=$1" >$file
     list=$(perl -ne 'if (/(tt[0-9]+)\/.{3}>([^<]+)<\/a/g) { print "$1\t$2\n"; }' <$file | 
         sort | 
