@@ -4,19 +4,6 @@ fs_clean() {
     perl -pe 'tr/0-9a-zA-z _ÖÄÜöäü\ls |&?,;//cd'
 }
 
-unescape() {
-    if perl -e 'use HTML::Entities;' 2>/dev/null; then
-        perl -e 'use HTML::Entities; while (<>) { print decode_entities($_); };'
-    else
-        python -c "
-import htmllib, sys, re
-p = htmllib.HTMLParser(None)
-p.save_bgn()
-p.feed(re.sub('&#x([0-9]+);', lambda m: '&#0%s;'%int(m.group(1),16), sys.stdin.read()))
-print p.save_end()"
-    fi
-}
-
 clean_name() {
     echo "$1" | perl -pe 's/(.*?)\.(?:20[0-1][0-9]|19[0-9]{2}|dvd|ac3|R5|unrated|TS|720p|md|ts|ld|bdrip|tvrip|dvdrip|dvdscr|uncut|German|telesync)\..*/\1/i' | 
         perl -pe 's/\./ /g'
@@ -24,16 +11,19 @@ clean_name() {
 
 query() {
     file=$(mktemp -t imdblookup.XXX)
-    wget -q -U "Mozilla" -O - "http://imdb.com/find?s=tt&q=$1" >$file
-    list=$(perl -ne 'if (/(tt[0-9]+)\/.{3}>([^<]+)<\/a/g) { print "$1\t$2\n"; }' <$file | 
-        sort | 
-        uniq )
-    if [ "xx$list" = "xx" ]; then
-        perl -ne 'if (/href="http:\/\/www.imdb.com\/title\/(tt[0-9]+)/) { print "$1"; }; ' <$file 
-        perl -ne 'if (/<title>(.+) \(/) { print "\t$1\n"; }; ' <$file
+    wget "http://www.imdbapi.com/?i=&t=$1" -O - -q |
+    	sed -e 's/",/"\
+/g; s/^{//; s/}$//; s/":/	/g; s/"//g' >$file
+
+    if grep "Response	True" $file >/dev/null; then
+        title="`grep -E '^Title' $file | cut -f 2 -d '	' | fs_clean`"
+        year="`grep -E '^Year' $file | cut -f 2 -d '	'`"
+        imdbId="`grep -E '^ID' $file | cut -f 2 -d '	'`"
+        echo "$title ($year) #$imdbId"
     else
-        echo "$list"
+        echo "Nothing found"
     fi
+    rm $file
 }
 
 imdb_get_year() {
@@ -44,12 +34,5 @@ imdb_get_year() {
 
 name=$(basename "$1")
 name=$(clean_name "$name")
-echo "Search >$name<"
 
-query "$name" |
-    while read line; do
-        id=$(echo "$line" | cut -f 1)
-        name=$(echo "$line" | cut -f 2 | unescape)
-        year=$(imdb_get_year "$id")
-        echo "$name ($year) #$id"
-    done
+query "$name"
