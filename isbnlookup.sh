@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 error() {
     echo $1 >&2
@@ -12,12 +12,11 @@ extract_first_pages() {
 find_first_isbn_number() {
     grep "ISBN" \
     | tr -c -d 'A-Za-z0-9\-\ ' \
-    | grep -o -E "ISBN *.{0,10} *([0-9\-]{13,17}|[0-9]{10,13})" \
-    | grep -o -E "([0-9\-]{13,17}|[0-9]{10,13})" \
     | head -n 1 \
-    | tr -c -d '0-9\-'
+    | tr -c -d '0-9\-X'
 }
-
+#  | grep -o -E "ISBN *.{0,10} *([0-9\-]{13,17}|[0-9]{10,13})" \
+#  | grep -o -E "([0-9\-]{13,17}|[0-9]{10,13})" \
 
 fetch_google_books_info() {
     isbn=$1
@@ -67,7 +66,8 @@ sanitize_filename() {
     echo "${1}" | tr -c -d 'A-Za-z0-9\ '
 }
 
-if [ "$1" == "-r" ]; then
+
+if [ "$1" = "-r" ]; then
     rename=true
     shift
 else
@@ -89,7 +89,7 @@ fi
 if [ `google_books_count_results "$infofile"` -eq 1 ]; then
     number=1
 elif [ `google_books_count_results "$infofile"` -eq 0 ]; then
-    error "Nothing found for \"$search\""
+    error "Nothing found for \"$search\" / $isbn"
 else
     google_books_print_results $infofile
     echo -n "Pick Number: "
