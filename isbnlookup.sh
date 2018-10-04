@@ -29,7 +29,7 @@ s/isbn-1[03]//i' \
     | tr -c -d '0-9\-\ ' \
     | sed -ne '
 :isbn13
-s/.*\([0-9]\{3\}-\?[0-9]-\?[0-9]\{3,4\}-\?[0-9]\{4\}-\?[0-9]-\?[0-9]\?\).*/isbn13 \1/p ; t finish;
+s/.*\([0-9]\{3\}-\?[0-9]-\?[0-9]\{2,4\}-\?[0-9]\{4,6\}-\?[0-9]-\?[0-9]\?\).*/isbn13 \1/p ; t finish;
 :isbn10
 s/.*\([0-9]\{1\}-\?[0-9]\{3,4\}-\?[0-9]\{4,5\}\).*/isbn10 \1/p ; t finish;
 :finish'
@@ -42,8 +42,7 @@ fetch_google_books_info() {
 }
 
 google_books_count_results() {
-    tempfile=$1
-    xpath -q -e 'count(/feed/entry)' "$tempfile" 2>/dev/null
+    xpath -q -e 'count(/feed/entry)' "$1" 2>/dev/null
 }
 
 google_books_print_results() {
@@ -51,35 +50,30 @@ google_books_print_results() {
     count=`google_books_count_results "$tempfile"`
     for i in `seq 1 $count`; do
         echo -n "$i : "
-        google_books_authors "$tempfile" "$i" | tr -d '\n'
+        google_books_entry_field "$tempfile" "$i" dc:creator
         echo -n " - "
-        google_books_title "$tempfile" "$i" | tr -d '\n'
+        google_books_entry_field "$tempfile" "$i" title
         echo -n " #isbn_"
-        google_books_identifier "$tempfile" "$i" | tr -d '\n'
+        google_books_entry_isbn "$tempfile" "$i"
         echo ".pdf"
     done
 }
 
-google_books_authors() {
+google_books_entry_field() {
     tempfile=$1
-    entry=$2
-    xpath -q -e "/feed/entry[$entry]/dc:creator/text()" "$tempfile" | head -n 1
+    entryno=$2
+    fieldname=$3
+    xpath -q -e "/feed/entry[$entryno]/$fieldname/text()" "$tempfile" | head -n 1 | tr -d '\n'
 }
 
-google_books_title() {
+google_books_entry_isbn() {
     tempfile=$1
-    entry=$2
-    xpath -q -e "/feed/entry[$entry]/title/text()" "$tempfile"
-}
-
-google_books_identifier() {
-    tempfile=$1
-    entry=$2
-    xpath -q -e "/feed/entry[$entry]/dc:identifier/text()" "$tempfile" | sed -n -e 's/ISBN:\(.*\)/\1/p' | sort -r | head -n 1
+    entryno=$2
+    xpath -q -e "/feed/entry[$entryno]/dc:identifier/text()" "$tempfile" | sed -n -e 's/ISBN:\(.*\)/\1/p' | sort -r | head -n 1 | tr -d '\n'
 }
 
 sanitize_filename() {
-    echo "${1}" | tr -c -d 'A-Za-z0-9:\ '
+    echo "$1" | tr -d -c 'A-Za-z0-9. #_,-'
 }
 
 if [ "$1" = "-r" ]; then
@@ -88,14 +82,24 @@ if [ "$1" = "-r" ]; then
 else
     rename=false
 fi
+
+if [ -f "$1" ]; then
+    filename=$1
+    shift
+else
+    if $rename; then
+        echo "No filename given but rename (-r) requested"
+    fi
+fi
+
 search=$*
 
-if [ -f "$search" ]; then
-    echo -n "search file: $search"
-    isbn=`extract_first_pages "${search}" | find_first_isbn_number`
+# Find search term and issue google-search
+if [ -z "$search" ] && [ -n "$filename" ]; then
+    echo -n "search ISBN in file: $filename"
+    isbn=`extract_first_pages "${filename}" | find_first_isbn_number`
     if [ ${#isbn} -eq 0 ]; then
-        echo " ... no isbn found"
-        exit 1
+        error " ... no isbn found"
     fi
     echo " ... $isbn"
     infofile=`fetch_google_books_info "${isbn##* }"`
@@ -104,40 +108,47 @@ else
     infofile=`fetch_google_books_info "$search"`
 fi
 
-#if [ `google_books_count_results "$infofile"` -eq 1 ]; then
-#    number=1
-#el
+# Print search result. Exit when none
+# Select a result by typing number
 if [ `google_books_count_results "$infofile"` -eq 0 ]; then
     error "Nothing found for \"$search\" / $isbn"
 else
     google_books_print_results $infofile
-    echo -n "Results for >$search< Pick Number: "
-    read number
+    while true; do
+        echo -n "Pick Number ('o' for open file, or nothing to skip): "
+        read number
+        if [ "$number" != "o" ]; then
+            break
+        fi
+        xdg-open "$filename"
+    done
 fi
 
+# Exit when no input
 if [ -z "$number" ]; then
     echo "Skip this file"
     exit 0
 fi
 
-author=`google_books_authors "$infofile" $number`
-title=`google_books_title "$infofile" $number`
-identifier=`google_books_identifier "$infofile" $number`
+# Rename file. Copy google-books xml.
+author=`google_books_entry_field "$tempfile" "$number" dc:creator`
+title=`google_books_entry_field "$tempfile" "$number" title`
+isbn=`google_books_entry_isbn "$tempfile" "$number"`
 if [ -n "$author" ]; then
-    newname="$author - $title #isbn_$identifier.pdf"
+    newname="$author - $title #isbn_$isbn.pdf"
 else
-    newname="$title #isbn_$identifier.pdf"
+    newname="$title #isbn_$isbn.pdf"
 fi
-newname=`echo "$newname" | tr -d -c 'A-Za-z0-9. #_,-'`
+newname=`sanitize_filename "$newname"`
 
-if $rename && [ -f "$search" ]; then
+if $rename; then
     echo "=> => => Rename: (press return or ctrl-c)"
-    echo "<=  $search"
+    echo "<=  $filename"
     echo " => $newname"
-#    read
-    mv "$search" "$newname"
-    mv "$infofile" "$newname.googlebooks.xml"
+    xpath -q -e "/feed/entry[$number]" < "$infofile" | xmllint --valid --format - > "$newname.googlebooks.xml" 2>/dev/null
+    mv "$filename" "$newname"
+    rm "$infofile"
 else
-    echo $newname
+    echo "New Filename: $newname"
     rm $infofile
 fi
